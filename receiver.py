@@ -7,6 +7,12 @@ import struct
 import time as Time
 import os
 
+#all possible serial ports
+import serial.tools.list_ports
+ports = list( serial.tools.list_ports.comports() )
+for p in ports:
+    print(p)
+
 #graph initialization
 style.use('fivethirtyeight')
 
@@ -14,7 +20,9 @@ n = 200  #sample size
 freq = 15 #frequency in Hz
 time_period = 1.0/freq
 time = 2.0* time_period
-wn = 40
+wn = 10 #number of wave not filtered
+gain = 1 #gain of ADC
+poly_deg = 5 #smoothing degree
 
 x= []
 y= []
@@ -35,6 +43,15 @@ def read_serial(ser):
     
     return data_in
 
+def process(data):
+    low = 0
+    high = 5
+    precision = 16 # 16-bit reading
+    global gain
+    data = low + (data/(2 ** (precision-1))) * (high/gain)
+    
+    return data
+    
 def check_delay(t, now):
     before = t  
     t = Time.monotonic() - now
@@ -84,7 +101,8 @@ plt.ion()
 plt.show()
 
 #serial port initialization
-port = "/dev/ttyUSB0"
+#port = "/dev/ttyUSB0"
+port = "COM4"
 ser = serial.Serial(port, 9600 )
 
 ser.close()
@@ -96,6 +114,7 @@ now = Time.monotonic()
 while True:
     try:
         data_in = read_serial(ser)
+        data_in = process(data_in)
         
         t = check_delay(t, now)
         
@@ -112,7 +131,6 @@ while True:
         
         #update smoothing
         axes1.lines[0].remove()
-        poly_deg = 10
         coefs = np.polyfit(x,y,poly_deg)
         x_poly = np.linspace(min(x),max(x),n*100)
         y_poly = np.polyval(coefs,x_poly )
