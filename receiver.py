@@ -19,8 +19,45 @@ wn = 40
 x= []
 y= []
 
-#yf = np.fft.fft(y)/n
-#yf = yf[range(n/2)]
+def read_serial(ser):
+    data_in = ser.readline()
+    data_in = data_in.decode()
+    if('\x00' == data_in[:1] ):
+        #data_in = data_in[3:]
+        data_in = data_in.split("\x00")[1];
+        print("\\x00 detected")
+    
+    try:
+        data_in = float ( ( data_in ).split("\\n")[0])
+    except:
+        print("FLOATING CONVERSION ERROR!")
+        pass
+    
+    return data_in
+
+def check_delay(t, now):
+    before = t  
+    t = Time.monotonic() - now
+    after = t
+    if( (after-before)/0.1 > 2.0):
+        print("delay")
+    
+    return t
+
+def update_x(t):
+    x = x + [t]
+    if( len(x) > n):
+        x = x[1:]
+    
+def update_y(data):
+    y = y + [data]
+    if( len(y) >n ):
+        y = y[1:]
+        
+def update_freq(x):
+    if len(x)>=n :
+        freq = n/(x[n-1]-x[0])
+        
 
 #data graph
 fig, axes = plt.subplots(2,1)
@@ -55,34 +92,13 @@ now = Time.monotonic()
 
 while True:
     try:
-        data_in = ser.readline()
-        data_in = data_in.decode()
-        if('\x00' == data_in[:1] ):
-            #data_in = data_in[3:]
-            data_in = data_in.split("\x00")[1];
-            print("\\x00 detected")
+        data_in = read_serial(ser)
         
-        try:
-          data_in = float ( ( data_in ).split("\\n")[0])
-        except:
-          pass
-         
-        before = t  
-        t = Time.monotonic() - now
-        after = t
-        if( (after-before)/0.1 > 2.0):
-            print("delay")
+        t = check_delay(t, now)
         
-        #print("time:",t)
-        if len(x) >=n :
-            x = x[1:] + [t]
-            y = y[1:] + [data_in]
-            freq = n/(x[n-1] - x[0])
-        else:
-            x = x+[t]
-            y = y+[data_in]
-        
-        #print(freq)
+        update_x(t)
+        update_y(data_in)
+        update_freq()
         
         #update real data
         axes1.lines[0].remove()
