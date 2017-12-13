@@ -34,7 +34,7 @@ gain = 1 #gain of ADC
 poly_deg = 5 #smoothing degree
 lim_maxy = 5.0
 lim_miny = 0.0
-lim_fft_maxy = 0.001
+lim_fft_maxy = 0.1
 lim_fft_miny = -0.0005
 x = []
 y = []
@@ -165,28 +165,35 @@ def apply_setting():
   except:
     pass
   
+  axes[0].set_ylim(lim_miny,lim_maxy)
+  axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
+  
   return
 
 tkinter.Button(root, text="Apply Setting", command = apply_setting).grid(row=line+0, column=2, columnspan=2, rowspan=7,
                sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
                
 #tkinter.Label(root, text="PUT GRAPH HERE !").grid(row=line+3, column=0,rowspan=5, columnspan=5, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+lines = []
 fig, axes = plt.subplots(2,1,figsize=(9,7))
 plt.close('all')
-axes[0].plot(x,y)
-axes[0].plot([],[]) #smoothing dummy
-axes[0].plot([],[]) #inverse fft dummy
+lines += [axes[0].plot(x, y, color='red', linewidth= 1, linestyle ='dotted', animated=True)[0]]
+lines += [axes[0].plot([], [], color='green', linewidth= 1, linestyle ='-', animated=True)[0]] #smoothing dummy
+lines += [axes[0].plot([], [], color='blue',linewidth=1, animated=True)[0]] #inverse fft dummy
 axes[0].set_xlabel('Time',size=12)
 axes[0].set_ylabel('Voltage',size=12)
 axes[0].set_title('Time Signal',size=12)
+axes[0].set_ylim(lim_miny,lim_maxy)
 axes1 = axes[0]
 
 #fft
-axes[1].plot(x,y)
-axes[1].plot([],[]) #delete dummy
+lines += [axes[1].plot(x, y, 'b',linewidth=1, animated=True)[0]]
+lines += [axes[1].plot([], [], 'r',linewidth=1, animated=True)[0]] #filtered fft dummy
 axes[1].set_xlabel('Freq (Hz)',size=12)
 axes[1].set_ylabel('|Y(freq)|',size=12)
 axes[1].set_title('FFT on Time Signal',size=12)
+axes[1].set_xlim(0,20)
+axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
 
 graph = tkinter.LabelFrame(root, text="Graph", padx=5,pady=5)
 graph.grid(row=0,column=4,rowspan=100,columnspan=100)
@@ -198,7 +205,7 @@ canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
 
 t=0
 now = Time.monotonic()
-
+print(lines)
 def animate(i):
     global t
     global axes1
@@ -206,6 +213,7 @@ def animate(i):
     global poly_deg
     global x
     global y
+    global lines
     
     def read_serial(ser):
         data_in = ser.readline()
@@ -219,6 +227,7 @@ def animate(i):
             data_in = float ( ( data_in ).split("\\n")[0])
         except:
             print("FLOATING CONVERSION ERROR!")
+            return -1.0
             pass
         
         return data_in
@@ -260,7 +269,7 @@ def animate(i):
     try:
         if port == "":
           plt.pause(0.001)
-          return
+          return lines
           
         data_in = read_serial(ser)
         data_in = process(data_in)
@@ -272,21 +281,22 @@ def animate(i):
         update_freq()
         
         #update real data
-        axes1.lines[0].remove()
-        axes1.plot(x,y,color='red', linewidth= 1, linestyle ='dotted')
-        axes1.set_xlim( min(x),max(x) )
-        #axes1.relim()
-        axes1.autoscale_view()
+        lines[0].set_ydata(y)
+        lines[0].set_xdata(x)
+        #axes1.lines[0].remove()
+        #axes1.plot(x,y,color='red', linewidth= 1, linestyle ='dotted')
         
         #update smoothing
-        axes1.lines[0].remove()
         coefs = np.polyfit(x,y,poly_deg)
         x_poly = np.linspace(min(x),max(x),n*100)
         y_poly = np.polyval(coefs,x_poly )
-        axes1.plot(x_poly ,y_poly,color='green', linewidth= 1, linestyle ='-')
-        axes1.set_ylim(lim_miny,lim_maxy)
+        lines[1].set_xdata(x_poly)
+        lines[1].set_ydata(y_poly)
+        #axes1.lines[0].remove()
+        #axes1.plot(x_poly ,y_poly,color='green', linewidth= 1, linestyle ='-')
+        #axes1.set_ylim(lim_miny,lim_maxy)
         axes1.set_xlim(min(x),max(x))
-        axes1.autoscale_view()
+        #axes1.autoscale_view()
         
         #update fft
         if(len(x) >= n):
@@ -296,15 +306,19 @@ def animate(i):
             #update real fft
             yf = yf[range(n//2)]
             xf = (np.arange(n)/n*freq)[range(n//2)]
-            axes[1].lines[0].remove()
-            axes[1].plot(xf,abs(yf),'b',linewidth=1)
-            axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
+            lines[3].set_xdata(xf)
+            lines[3].set_ydata(abs(yf) )
+            #axes[1].lines[0].remove()
+            #axes[1].plot(xf,abs(yf),'b',linewidth=1)
+            #axes[1].set_xlim(0,freq)
             
             #update filtered fft
             ydel = yf
             ydel[0:wn] = 0.0
-            axes[1].lines[0].remove()
-            axes[1].plot(xf,abs(ydel),'r',linewidth=1)
+            lines[4].set_xdata(xf)
+            lines[4].set_ydata(abs(ydel))
+            #axes[1].lines[0].remove()
+            #axes[1].plot(xf,abs(ydel),'r',linewidth=1)
             
             #update inverse fft
             if wn > 0 :
@@ -312,17 +326,22 @@ def animate(i):
             else:
               yff[:] = 0.0
             yff = np.fft.ifft(yff)
-            axes1.lines[0].remove()
-            axes1.plot(x,yff,color='blue',linewidth=1)
+            lines[2].set_xdata(x)
+            lines[2].set_ydata(yff)
+            #axes1.lines[0].remove()
+            #axes1.plot(x,yff,color='blue',linewidth=1)
         else:
-            axes1.lines[0].remove()
-            axes1.plot([],[])
+            #axes1.lines[0].remove()
+            #axes1.plot([],[])
+            pass
           
         plt.pause(0.001)
     except KeyboardInterrupt:
         global root
         root.destroy()
-        return
+        return lines
+    
+    return lines
          
-ani = animation.FuncAnimation(fig, animate, interval=50)
+ani = animation.FuncAnimation(fig, animate, blit= True, interval=1)
 root.mainloop(  )
