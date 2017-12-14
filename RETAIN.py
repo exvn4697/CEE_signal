@@ -212,7 +212,7 @@ canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
 
 t=0
 now = Time.monotonic()
-#print(lines)
+print(lines)
 def animate(i):
     global t
     global axes1

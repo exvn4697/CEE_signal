@@ -1,8 +1,5 @@
 import serial
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
-
 import matplotlib.pyplot as plt
 from matplotlib import style
 import matplotlib.animation as animation
@@ -12,7 +9,9 @@ import time as Time
 import os
 
 import tkinter
-style.use('fivethirtyeight')
+import matplotlib
+matplotlib.use("TkAgg")
+#style.use('fivethirtyeight')
 plt.rc('xtick',labelsize=12)
 plt.rc('ytick',labelsize=12)
 
@@ -205,14 +204,12 @@ graph.grid(row=0,column=4,rowspan=100,columnspan=100)
 fig.tight_layout()
 canvas = FigureCanvasTkAgg(fig, master=graph)
 canvas.show()
-background1 = fig.canvas.copy_from_bbox(axes[0].bbox)
-background2 = fig.canvas.copy_from_bbox(axes[1].bbox)
 #canvas.get_tk_widget().grid(row=0, column=4,rowspan=200, columnspan=50, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S)
 canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
 
 t=0
 now = Time.monotonic()
-#print(lines)
+print(lines)
 def animate(i):
     global t
     global axes1
@@ -226,7 +223,10 @@ def animate(i):
     def read_serial(ser):
         data_in = ser.readline()
         data_in = data_in.decode()
-        data_in = data_in.split('-')[-2]
+        if('\x00' == data_in[:1] ):
+            #data_in = data_in[3:]
+            data_in = data_in.split("\x00")[1];
+            print("\\x00 detected")
         
         try:
             data_in = float ( ( data_in ).split("\\n")[0])
@@ -280,12 +280,7 @@ def animate(i):
         #b = Time.monotonic()
         
         data_in = read_serial(ser)
-        real = data_in
         data_in = process(data_in)
-        if data_in > 5:
-            print("voltage : ",data_in)
-            print("adc read: ", real)
-            print("freq: ",freq)
         
         t = check_delay(t, now)
         
@@ -316,7 +311,7 @@ def animate(i):
             
             #update real fft
             yf = yf[range(n//2)]
-            xf = (np.arange(n)/n*freq)[range(n//2)]
+            xf = (np.arange(n)/n*freq)[range(n)]
             lines[3].set_data(xf, abs(yf))
             #axes[1].lines[0].remove()
             #axes[1].plot(xf,abs(yf),'b',linewidth=1)
@@ -343,18 +338,8 @@ def animate(i):
             #axes1.plot([],[])
             pass
         
+        print(freq)
         #fig.canvas.draw()
-        fig.canvas.restore_region(background1)
-        fig.canvas.restore_region(background2)
-        axes[0].draw_artist(lines[0])
-        axes[0].draw_artist(lines[1])
-        axes[0].draw_artist(lines[2])
-        fig.canvas.blit(axes[0].bbox)
-        axes[1].draw_artist(lines[3])
-        axes[1].draw_artist(lines[4])
-        fig.canvas.blit(axes[1].bbox)
-        fig.canvas.flush_events()
-        #print(freq)
         #one = Time.monotonic() - b
         #print("one animate func: "+str(one) )
         #plt.pause(0.001)
@@ -365,9 +350,5 @@ def animate(i):
     
     return lines
          
-#ani = animation.FuncAnimation(fig, animate, blit= True, interval=0)
-while True:
-  root.update_idletasks()
-  root.update()
-  animate(1)
-#root.mainloop(  )
+ani = animation.FuncAnimation(fig, animate, blit= True, interval=0)
+root.mainloop(  )
