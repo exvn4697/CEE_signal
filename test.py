@@ -28,6 +28,8 @@ line, = ax.plot(y)
 line2, = axes[1].plot(y,'-g')
 axes[0].set_ylim(-5,10)
 axes[0].set_xlim(0,10)
+axes[1].set_ylim(-5,10)
+axes[1].set_xlim(0,10)
 plt.show(block=False)
 fig.canvas.draw()
 
@@ -59,11 +61,11 @@ while time.time()-tstart < 5:
         return data_in
 
     def process(data):
-        low = 0
-        high = 3.3
+        low = 0.0
+        high = 4.096
         precision = 16 # 16-bit reading
         global gain
-        data = low + (data/(2 ** (precision-1))) * (high/gain)
+        data = low + (data/(2 ** (precision-1)-1)) * (high/gain)
         
         return data
         
@@ -111,7 +113,7 @@ while time.time()-tstart < 5:
     ax.draw_artist(ax.patch)
     ax.draw_artist(line)
     
-    #line2.set_ydata(yff)
+    line2.set_data(x,yff)
     axes[1].draw_artist(axes[1].patch)
     axes[1].draw_artist(line2)
     fig.canvas.update()

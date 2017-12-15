@@ -172,6 +172,7 @@ def apply_setting():
   axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
   
   fig.canvas.draw()
+  print(freq)
   
   return
 
@@ -207,12 +208,13 @@ canvas = FigureCanvasTkAgg(fig, master=graph)
 canvas.show()
 background1 = fig.canvas.copy_from_bbox(axes[0].bbox)
 background2 = fig.canvas.copy_from_bbox(axes[1].bbox)
-#canvas.get_tk_widget().grid(row=0, column=4,rowspan=200, columnspan=50, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S)
 canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
+#fig.canvas.draw()
+#fig.canvas.blit(axes[1].bbox)
 
 t=0
 now = Time.monotonic()
-#print(lines)
+
 def animate(i):
     global t
     global axes1
@@ -226,23 +228,26 @@ def animate(i):
     def read_serial(ser):
         data_in = ser.readline()
         data_in = data_in.decode()
-        data_in = data_in.split('-')[-2]
+        if('\x00' == data_in[:1] ):
+            #data_in = data_in[3:]
+            data_in = data_in.split("\x00")[1];
+            print("\\x00 detected")
         
         try:
             data_in = float ( ( data_in ).split("\\n")[0])
         except:
-            print("FLOATING CONVERSION ERROR!")
-            return -1.0
+            #print("FLOATING CONVERSION ERROR!")
+            return -10.0
             pass
         
         return data_in
 
     def process(data):
-        low = 0
-        high = 3.3
+        low = 0.0
+        high = 4.096
         precision = 16 # 16-bit reading
         global gain
-        data = low + (data/(2 ** (precision-1))) * (high/gain)
+        data = low + (data/(2 ** (precision-1)-1)) * (high/gain)
         
         return data
         
@@ -282,10 +287,11 @@ def animate(i):
         data_in = read_serial(ser)
         real = data_in
         data_in = process(data_in)
-        if data_in > 5:
+        if (data_in > 5.0) or (data_in < 0.0) :
             print("voltage : ",data_in)
             print("adc read: ", real)
             print("freq: ",freq)
+            return lines
         
         t = check_delay(t, now)
         
@@ -343,7 +349,6 @@ def animate(i):
             #axes1.plot([],[])
             pass
         
-        #fig.canvas.draw()
         fig.canvas.restore_region(background1)
         fig.canvas.restore_region(background2)
         axes[0].draw_artist(lines[0])
@@ -353,11 +358,8 @@ def animate(i):
         axes[1].draw_artist(lines[3])
         axes[1].draw_artist(lines[4])
         fig.canvas.blit(axes[1].bbox)
+        #fig.canvas.draw()
         fig.canvas.flush_events()
-        #print(freq)
-        #one = Time.monotonic() - b
-        #print("one animate func: "+str(one) )
-        #plt.pause(0.001)
     except KeyboardInterrupt:
         global root
         root.destroy()

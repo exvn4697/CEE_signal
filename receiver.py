@@ -13,20 +13,20 @@ ports = list( serial.tools.list_ports.comports() )
 for p in ports:
     print(p)
 
-#graph initialization
-style.use('fivethirtyeight')
-
-n = 200  #sample size
-freq = 15 #frequency in Hz
-time_period = 1.0/freq
-time = 2.0* time_period
+x = []
+y = []
+n = 200
+freq = 15
 wn = 10 #number of wave not filtered
 gain = 1 #gain of ADC
 poly_deg = 5 #smoothing degree
-
-x= []
-y= []
-
+lim_maxy = 5.0
+lim_miny = 0.0
+lim_fft_maxy = 0.1
+lim_fft_miny = -0.0005
+x = []
+y = []
+    
 def read_serial(ser):
     data_in = ser.readline()
     data_in = data_in.decode()
@@ -38,17 +38,18 @@ def read_serial(ser):
     try:
         data_in = float ( ( data_in ).split("\\n")[0])
     except:
-        print("FLOATING CONVERSION ERROR!")
+        #print("FLOATING CONVERSION ERROR!")
+        return -1.0
         pass
     
     return data_in
 
 def process(data):
-    low = 0
-    high = 5
+    low = 0.0
+    high = 4.096
     precision = 16 # 16-bit reading
     global gain
-    data = low + (data/(2 ** (precision-1))) * (high/gain)
+    data = low + (data/(2 ** (precision-1)-1)) * (high/gain)
     
     return data
     
@@ -59,6 +60,7 @@ def check_delay(t, now):
     if( (after-before)/0.1 > 2.0):
         print("delay")
     
+    #print("graph build time: "+str(after-before))
     return t
 
 def update_x(t):
@@ -77,28 +79,6 @@ def update_freq():
     global freq
     if len(x)>=n :
         freq = n/(x[n-1]-x[0])
-        
-
-#data graph
-fig, axes = plt.subplots(2,1)
-axes[0].plot(x,y)
-axes[0].plot([],[]) #smoothing dummy
-axes[0].plot([],[]) #inverse fft dummy
-axes[0].set_xlabel('Time')
-axes[0].set_ylabel('Amplitude')
-axes[0].set_title('Time Signal')
-axes1 = axes[0]
-
-#fft
-axes[1].plot(x,y)
-axes[1].plot([],[]) #delete dummy
-axes[1].set_xlabel('Freq (Hz)')
-axes[1].set_ylabel('|Y(freq)|')
-axes[1].set_title('FFT on Time Signal')
-
-plt.tight_layout()
-plt.ion()
-plt.show()
 
 #serial port initialization
 #port = "/dev/ttyUSB0"
@@ -122,50 +102,8 @@ while True:
         update_y(data_in)
         update_freq()
         
-        #update real data
-        axes1.lines[0].remove()
-        axes1.plot(x,y,color='red', linewidth= 1, linestyle ='dotted')
-        axes1.set_xlim( min(x),max(x) )
-        #axes1.relim()
-        axes1.autoscale_view()
+        print(freq)
         
-        #update smoothing
-        axes1.lines[0].remove()
-        coefs = np.polyfit(x,y,poly_deg)
-        x_poly = np.linspace(min(x),max(x),n*100)
-        y_poly = np.polyval(coefs,x_poly )
-        axes1.plot(x_poly ,y_poly,color='green', linewidth= 1, linestyle ='-')
-        axes1.relim()
-        axes1.autoscale_view()
-        
-        #update fft
-        if(len(x) >= n):
-          yff = np.fft.fft(y)
-          yf = np.fft.fft(y)/n
-          
-          #update real fft
-          yf = yf[range(n//2)]
-          xf = (np.arange(n)/n*freq)[range(n//2)]
-          axes[1].lines[0].remove()
-          axes[1].plot(xf,abs(yf),'b',linewidth=1)
-          axes[1].set_ylim(-1.0,1.0)
-          
-          #update filtered fft
-          ydel = yf
-          ydel[0:wn] = 0.0
-          axes[1].lines[0].remove()
-          axes[1].plot(xf,abs(ydel),'r',linewidth=1)
-          
-          #update inverse fft
-          yff[wn:-wn] = 0.0
-          yff = np.fft.ifft(yff)
-          axes1.lines[0].remove()
-          axes1.plot(x,yff,color='blue',linewidth=1)
-        else:
-          axes1.lines[0].remove()
-          axes1.plot([],[])
-          
-        plt.pause(0.001)
     except KeyboardInterrupt:
         break
 

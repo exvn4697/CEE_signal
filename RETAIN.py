@@ -171,6 +171,7 @@ def apply_setting():
   axes[0].set_ylim(lim_miny,lim_maxy)
   axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
   
+  print(freq)
   fig.canvas.draw()
   
   return
@@ -226,20 +227,23 @@ def animate(i):
     def read_serial(ser):
         data_in = ser.readline()
         data_in = data_in.decode()
-        data_in = data_in.split('-')[-2]
+        if('\x00' == data_in[:1] ):
+            #data_in = data_in[3:]
+            data_in = data_in.split("\x00")[1];
+            print("\\x00 detected")
         
         try:
             data_in = float ( ( data_in ).split("\\n")[0])
         except:
-            print("FLOATING CONVERSION ERROR!")
-            return -1.0
+            #print("FLOATING CONVERSION ERROR!")
+            return -10.0
             pass
         
         return data_in
 
     def process(data):
         low = 0
-        high = 3.3
+        high = 4.096
         precision = 16 # 16-bit reading
         global gain
         data = low + (data/(2 ** (precision-1))) * (high/gain)
@@ -282,7 +286,7 @@ def animate(i):
         data_in = read_serial(ser)
         real = data_in
         data_in = process(data_in)
-        if data_in > 5:
+        if (data_in > 5) or (data_in < 0.001):
             print("voltage : ",data_in)
             print("adc read: ", real)
             print("freq: ",freq)

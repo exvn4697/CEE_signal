@@ -1,5 +1,8 @@
 import serial
 import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
+
 import matplotlib.pyplot as plt
 from matplotlib import style
 import matplotlib.animation as animation
@@ -9,9 +12,7 @@ import time as Time
 import os
 
 import tkinter
-import matplotlib
-matplotlib.use("TkAgg")
-#style.use('fivethirtyeight')
+style.use('fivethirtyeight')
 plt.rc('xtick',labelsize=12)
 plt.rc('ytick',labelsize=12)
 
@@ -170,7 +171,18 @@ def apply_setting():
   axes[0].set_ylim(lim_miny,lim_maxy)
   axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
   
+  print(freq)
   fig.canvas.draw()
+  background2 = fig.canvas.copy_from_bbox(axes[1].get_figure().bbox)
+  fig.canvas.restore_region(background2)
+  axes[0].draw_artist(axes[0].get_yaxis() )
+  fig.canvas.blit(axes[0].bbox)
+  axes[1].draw_artist(axes[1].get_yaxis() )
+  axes[1].draw_artist(lines[3])
+  axes[1].draw_artist(lines[4])
+  #fig.canvas.blit(axes[1].bbox)
+  fig.canvas.blit(axes[1].clipbox)
+  fig.canvas.flush_events()
   
   return
 
@@ -196,20 +208,22 @@ lines += [axes[1].plot([], [], 'r',linewidth=1, animated=True)[0]] #filtered fft
 axes[1].set_xlabel('Freq (Hz)',size=12)
 axes[1].set_ylabel('|Y(freq)|',size=12)
 axes[1].set_title('FFT on Time Signal',size=12)
-axes[1].set_xlim(0,30)
+axes[1].set_xlim(0,40)
 axes[1].set_ylim(lim_fft_miny,lim_fft_maxy)
+axes[1].get_yaxis().set_animated(True)
 
 graph = tkinter.LabelFrame(root, text="Graph", padx=5,pady=5)
 graph.grid(row=0,column=4,rowspan=100,columnspan=100)
 fig.tight_layout()
 canvas = FigureCanvasTkAgg(fig, master=graph)
 canvas.show()
-#canvas.get_tk_widget().grid(row=0, column=4,rowspan=200, columnspan=50, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S)
+background1 = fig.canvas.copy_from_bbox(axes[0].bbox)
+background2 = fig.canvas.copy_from_bbox(axes[1].get_figure().bbox)
 canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
 
 t=0
 now = Time.monotonic()
-print(lines)
+
 def animate(i):
     global t
     global axes1
@@ -231,18 +245,18 @@ def animate(i):
         try:
             data_in = float ( ( data_in ).split("\\n")[0])
         except:
-            print("FLOATING CONVERSION ERROR!")
-            return -1.0
+            #print("FLOATING CONVERSION ERROR!")
+            return -10.0
             pass
         
         return data_in
 
     def process(data):
-        low = 0
-        high = 3.3
+        low = 0.0
+        high = 4.096
         precision = 16 # 16-bit reading
         global gain
-        data = low + (data/(2 ** (precision-1))) * (high/gain)
+        data = low + (data/(2 ** (precision-1)-1)) * (high/gain)
         
         return data
         
@@ -280,7 +294,13 @@ def animate(i):
         #b = Time.monotonic()
         
         data_in = read_serial(ser)
+        real = data_in
         data_in = process(data_in)
+        if (data_in > 5.0) or (data_in < 0.0) :
+            print("voltage : ",data_in)
+            print("adc read: ", real)
+            print("freq: ",freq)
+            return lines
         
         t = check_delay(t, now)
         
@@ -311,7 +331,7 @@ def animate(i):
             
             #update real fft
             yf = yf[range(n//2)]
-            xf = (np.arange(n)/n*freq)[range(n)]
+            xf = (np.arange(n)/n*freq)[range(n//2)]
             lines[3].set_data(xf, abs(yf))
             #axes[1].lines[0].remove()
             #axes[1].plot(xf,abs(yf),'b',linewidth=1)
@@ -338,17 +358,12 @@ def animate(i):
             #axes1.plot([],[])
             pass
         
-        print(freq)
-        #fig.canvas.draw()
-        #one = Time.monotonic() - b
-        #print("one animate func: "+str(one) )
-        #plt.pause(0.001)
     except KeyboardInterrupt:
         global root
         root.destroy()
         return lines
     
-    return lines
+    return [lines[0],lines[1],lines[2]]
          
 ani = animation.FuncAnimation(fig, animate, blit= True, interval=0)
 root.mainloop(  )
