@@ -1,19 +1,38 @@
-#TODO : 1. x-axis real time update with time or index option
-#       2. start, stop, and reset button
+################################################################################
+#By : Ervin Kwok
+#
+#
+#matplotlib with tkinter tutorial :
+#1. https://pythonprogramming.net/how-to-embed-matplotlib-graph-tkinter-gui/
+#2. https://pythonprogramming.net/embedding-live-matplotlib-graph-tkinter-gui/?completed=/how-to-embed-matplotlib-graph-tkinter-gui/
+#3.https://pythonprogramming.net/organizing-gui/?completed=/embedding-live-matplotlib-graph-tkinter-gui/
+#4. https://pythonprogramming.net/plotting-live-bitcoin-price-data-tkinter-matplotlib/?completed=/organizing-gui/ 
+#
+#how to speed up matplotlib :
+#1. http://bastibe.de/2013-05-30-speeding-up-matplotlib.html
+#2. https://taher-zadeh.com/speeding-matplotlib-plotting-times-real-time-monitoring-purposes/
+#
+#threading in python with shared queue :
+#1. https://stackoverflow.com/questions/16044452/sharing-data-between-threads-in-python
+#2. https://www.troyfawkes.com/learn-python-multithreading-queues-basics/
+##################################################################################
 
 import threading
 import queue
 import time
 import serial.tools.list_ports
+import json
 
 import serial
 import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
+from matplotlib.figure import Figure
 
 import matplotlib.pyplot as plt
 from matplotlib import style
-import matplotlib.animation as animation
+import matplotlib.animation as animation #refer to matplotlib tutorial 4
 from matplotlib.transforms import Bbox
 
 import struct
@@ -23,9 +42,6 @@ import tkinter
 style.use('fivethirtyeight')
 plt.rc('xtick',labelsize=12)
 plt.rc('ytick',labelsize=12)
-
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
-from matplotlib.figure import Figure
 
 class Manager:
     def __init__(self):
@@ -51,25 +67,58 @@ class Manager:
         self.high = 4.096
         self.stop_bit = True
         self.bbox_xaxis = Bbox.from_bounds(105.325,372.277,915.84,390.276)
+        self.smoothing = True
+        self.fft = True
+        
+        #update constants from settings.txt
+        def read_settings():
+            with open('settings.txt','r') as f:
+                lines = f.readlines()
+                temp = ""
+                for line in lines:
+                    temp += line
+                set = json.loads(temp)
+                
+                return set
+        
+        self.set = {}
+        self.set = read_settings()
+        self.sample_size = self.set['sample_size']
+        self.gain = self.set['gain']
+        self.wn = self.set['filter_freq']
+        self.poly_deg = self.set['poly_deg']
+        self.lim_maxy = self.set['max_yaxis']
+        self.lim_miny = self.set['min_yaxis']
+        self.lim_fft_maxy = self.set['max_fft_yaxis']
+        self.lim_fft_miny = self.set['min_fft_yaxis']
+        self.lim_fft_maxx = self.set['max_fft_xaxis']
+        self.lim_fft_minx = self.set['min_fft_xaxis']
         
         #initialize tkinter and graph
         self._init_tkinter()
     
+    #initialize GUI tkinter
     def _init_tkinter(self):
+        #make tkinter object
         self.root = tkinter.Tk(  )
         self.root.wm_state('zoomed')
-        ports = list( serial.tools.list_ports.comports() )
+        ports = list( serial.tools.list_ports.comports() ) #list all available ports to connect
         line = 0
         
+        #display all available ports to the interface
         tkinter.Label(self.root, text="Open Port: ").grid(row=line, column=0, sticky=tkinter.W)
         line += 1
         for p in ports:
             tkinter.Label(self.root, text=str(line)+". "+str(p)).grid(row=line,column=0)
             line += 1
          
+        #connect to a port function 
         def connect():
             self.port = port_var.get()
             try:
+                if self.ser != "" and self.ser.isOpen() == True:
+                    self.ser.close()
+                time.sleep(0.5)
                 self.ser = serial.Serial(self.port, 9600)
                 if self.ser.isOpen() == False:
                     self.ser.open()
@@ -83,6 +132,7 @@ class Manager:
             self.root.update()
             return
             
+        #port connection settings
         tkinter.Label(self.root, text="select port").grid(row=0,column=1)
         port_var = tkinter.StringVar()
         port_var.set("COM4")
@@ -91,7 +141,8 @@ class Manager:
 
         if line<2 :
           line = 2
-          
+        
+        #connection notification text
         connect_var = tkinter.StringVar()
         connect_var.set("")
         tkinter.Label(self.root, textvariable=connect_var).grid(row = line,column=0,columnspan=3,sticky=tkinter.N)
@@ -99,7 +150,8 @@ class Manager:
 
         tkinter.Label(self.root, textvariable="").grid(row = line,column=0,columnspan=3,sticky=tkinter.N)
         line += 1
-
+        
+        #graph settings labels
         tkinter.Label(self.root, text="GAIN :").grid(row=line+0,column=0)
         tkinter.Label(self.root, text="Polynomial Degree :").grid(row=line+1,column=0)
         tkinter.Label(self.root, text="Filtered frequency :").grid(row=line+2,column=0)
@@ -112,6 +164,7 @@ class Manager:
         tkinter.Label(self.root, text="Sample size :").grid(row=line+9,column=0)
         tkinter.Label(self.root, text="x-axis type:").grid(row=line+10,column=0)
 
+        #graph settings textboxes and initialize them
         gain_var = tkinter.StringVar()
         gain_var.set(self.gain)
         tkinter.Entry(self.root, textvariable=gain_var).grid(row=line+0,column=1)
@@ -143,15 +196,16 @@ class Manager:
         sample_size_var.set(self.sample_size)
         tkinter.Entry(self.root, textvariable=sample_size_var).grid(row=line+9,column=1)
         
+        #boolean for distinguish time-xaxis and index-xaxis
         self.on_off_bit = False
-        def xaxis_button1():
+        def xaxis_time_button():
             state = self.on_off_bit
             self.on_off_bit = False
             self.lines[0].set_xdata(self.x)
                 
-        tkinter.Button(self.root, text="time", command = xaxis_button1).grid(row=line+10, column=1)
+        tkinter.Button(self.root, text="time", command = xaxis_time_button).grid(row=line+10, column=1)
         
-        def xaxis_button2():
+        def xaxis_index_button():
             state = self.on_off_bit
             self.on_off_bit = True
             while len(self.x_index) > len(self.y) and len(self.x_index) > 0 :
@@ -161,8 +215,9 @@ class Manager:
                 self.x_index += [i]
             self.lines[0].set_xdata(self.x_index)
             
-        tkinter.Button(self.root, text="index", command = xaxis_button2).grid(row=line+10, column=2)
+        tkinter.Button(self.root, text="index", command = xaxis_index_button).grid(row=line+10, column=2)
         
+        #apply all setting indicated in graph settings textboxes
         def apply_setting():          
           try:
             self.gain = int(gain_var.get() )
@@ -214,12 +269,31 @@ class Manager:
           except:
             pass
           
+          #draw the changes
           self.axes[0].set_ylim(self.lim_miny, self.lim_maxy)
           self.axes[1].set_ylim(self.lim_fft_miny, self.lim_fft_maxy)
           self.axes[1].set_xlim(self.lim_fft_minx, self.lim_fft_maxx)
+          self.axes[1].draw_artist(self.axes[1].xaxis)
           self.fig.canvas.draw()
-          self.background1 = self.fig.canvas.copy_from_bbox(self.bbox_xaxis)
+          self.background1 = self.fig.canvas.copy_from_bbox(self.axes[0].get_figure().bbox)
           print(self.freq)
+          
+          #save settings to file settings.txt
+          def update_set():
+              self.set['sample_size'] = self.sample_size
+              self.set['gain'] = self.gain 
+              self.set['filter_freq'] = self.wn
+              self.set['poly_deg'] = self.poly_deg 
+              self.set['max_yaxis'] = self.lim_maxy
+              self.set['min_yaxis'] = self.lim_miny
+              self.set['max_fft_yaxis'] = self.lim_fft_maxy
+              self.set['min_fft_yaxis'] = self.lim_fft_miny
+              self.set['max_fft_xaxis'] = self.lim_fft_maxx
+              self.set['min_fft_xaxis'] = self.lim_fft_minx
+          
+          update_set()
+          with open('settings.txt','w') as f:
+              f.write(json.dumps(self.set, sort_keys=True,indent=2, separators=(',', ': ')))
           
           return
 
@@ -227,17 +301,34 @@ class Manager:
         
         line += 11
         
+        tkinter.Label(self.root, text="smoothing line :").grid(row=line+0,column=0)
+        def on_smoothing():
+            self.smoothing = True
+        tkinter.Button(self.root, text="on", command = on_smoothing).grid(row=line+0, column=1, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        def off_smoothing():
+            self.smoothing = False
+        tkinter.Button(self.root, text="off", command = off_smoothing).grid(row=line+0, column=2, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        
+        line +=1
+        tkinter.Label(self.root, text="fft line :").grid(row=line+0,column=0)
+        def on_fft():
+            self.fft = True
+        tkinter.Button(self.root, text="on", command = on_fft).grid(row=line+0, column=1, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        def off_fft():
+            self.fft = False
+        tkinter.Button(self.root, text="off", command = off_fft).grid(row=line+0, column=2, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        
+        line +=1
+        
         def start_button():
             self.stop_bit = False
         
-        tkinter.Button(self.root, text="Start", command = start_button).grid(row=line+0, column=0, columnspan=3,
-                       sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        tkinter.Button(self.root, text="Start", command = start_button).grid(row=line+0, column=0, columnspan=3, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
         
         def stop_button():
             self.stop_bit = True
         
-        tkinter.Button(self.root, text="Stop", command = stop_button).grid(row=line+1, column=0, columnspan=3,
-                       sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        tkinter.Button(self.root, text="Stop", command = stop_button).grid(row=line+1, column=0, columnspan=3, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
                        
         def reset_button():
             self.x = []
@@ -247,16 +338,16 @@ class Manager:
                     data_xy = self.dataQueue.get_nowait()
             self.now = time.monotonic()
         
-        tkinter.Button(self.root, text="Reset", command = reset_button).grid(row=line+2, column=0, columnspan=3,
-                       sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
+        tkinter.Button(self.root, text="Reset", command = reset_button).grid(row=line+2, column=0, columnspan=3, sticky=tkinter.W+tkinter.E+tkinter.N+tkinter.S, padx=5, pady=5)
         
         self.lines = []
         self.fig, self.axes = plt.subplots(2,1,figsize=(9,7))
         plt.close('all')
+        
+        #data graph plot
         self.lines += [self.axes[0].plot(self.x, self.y, color='red', linewidth= 1, linestyle ='dotted', animated=True)[0]]
         self.lines += [self.axes[0].plot([], [], color='green', linewidth= 1, linestyle ='-', animated=True)[0]] #smoothing dummy
         self.lines += [self.axes[0].plot([], [], color='blue',linewidth=1, animated=True)[0]] #inverse fft dummy
-        #axes[0].set_xlabel('Time',size=12)
         self.axes[0].set_ylabel('Voltage',size=12)
         self.axes[0].set_title('Time Signal',size=12)
         self.axes[0].set_ylim(self.lim_miny, self.lim_maxy)
@@ -264,7 +355,7 @@ class Manager:
         self.axes[0].get_xaxis().set(zorder=-1)
         self.axes1 = self.axes[0]
 
-        #fft
+        #fft graph plot
         self.lines += [self.axes[1].plot(self.x, self.y, 'b',linewidth=1, animated=True)[0]]
         self.lines += [self.axes[1].plot([], [], 'r',linewidth=1, animated=True)[0]] #filtered fft dummy
         self.axes[1].set_xlabel('Freq (Hz)',size=12)
@@ -272,13 +363,15 @@ class Manager:
         self.axes[1].set_title('FFT on Time Signal',size=12)
         self.axes[1].set_xlim(self.lim_fft_minx, self.lim_fft_maxx)
         self.axes[1].set_ylim(self.lim_fft_miny, self.lim_fft_maxy)
+        self.axes[1].get_xaxis().set_animated(True)
+        self.axes[1].get_xaxis().set(zorder=-1)
 
         graph = tkinter.LabelFrame(self.root, text="Graph", padx=5,pady=5)
         graph.grid(row=0,column=4,rowspan=100,columnspan=100)
         self.fig.tight_layout()
         canvas = FigureCanvasTkAgg(self.fig, master=graph)
         canvas.show()
-        self.background1 = self.fig.canvas.copy_from_bbox(self.bbox_xaxis)
+        self.background1 = self.fig.canvas.copy_from_bbox(self.axes[0].get_figure().bbox)
         self.background2 = self.fig.canvas.copy_from_bbox(self.axes[1].bbox)
         canvas.get_tk_widget().pack(side=tkinter.TOP, fill= tkinter.BOTH, expand=1)
     
@@ -290,14 +383,13 @@ class Manager:
             data_in = self.ser.readline()
             data_in = data_in.decode()
             if('\x00' == data_in[:1] ):
-                #data_in = data_in[3:]
                 data_in = data_in.split("\x00")[1];
                 print("\\x00 detected")
             
             try:
                 data_in = float ( ( data_in ).split("\\n")[0])
             except:
-                #print("FLOATING CONVERSION ERROR!")
+                print("FLOATING CONVERSION ERROR!")
                 return -10.0
                 pass
             
@@ -310,14 +402,20 @@ class Manager:
             return data
             
         while True:
-            #print(self.ser)
+            #do not put anything if there is no serial port connected
+            #do not put anything if stop is clicked
             if self.ser == "" or self.stop_bit:
                 while not self.dataQueue.empty():
                     data_xy = self.dataQueue.get_nowait()
                 time.sleep(1)
                 continue
-                
-            data = read_serial()
+            try:    
+                data = read_serial()
+            except Exception as e:
+                time.sleep(1)
+                continue
+            
+            #process and put data to shared queue
             data = process(data)
             if data > 0.0 and data < self.high/self.gain :
                 try:
@@ -329,13 +427,16 @@ class Manager:
     def update_graph(self, i):
         data_x = []
         data_y = []
+        
+        #extract data from shared queue
         while not self.dataQueue.empty():
             data_xy = self.dataQueue.get_nowait()
             data_x += [data_xy[0]]
             data_y += [data_xy[1]]
         
+        #nothing from queue
         if len(data_x) <= 0 :
-            return self.lines
+            return self.lines + [self.axes[0].xaxis, self.axes[1].xaxis]
             
         if len(self.x) + len(data_x) > self.sample_size:
             self.x = self.x[len(self.x)-self.sample_size+len(data_x):] + data_x
@@ -357,7 +458,6 @@ class Manager:
             for i in range(len(self.x_index), len(self.y), 1):
                 self.x_index += [i]
             x = self.x_index
-            #print(len(self.x_index), len(self.y) )
         else:
             x = self.x
             
@@ -368,7 +468,10 @@ class Manager:
         coefs = np.polyfit(x, self.y, self.poly_deg)
         x_poly = np.linspace(min(x), max(x), self.sample_size*100)
         y_poly = np.polyval(coefs, x_poly)
-        self.lines[1].set_data(x_poly, y_poly)            
+        if self.smoothing:
+            self.lines[1].set_data(x_poly, y_poly)
+        else:
+            self.lines[1].set_data([],[])
         self.axes[0].set_xlim(min(x), max(x))
         
         #update fft
@@ -386,7 +489,6 @@ class Manager:
             for i in range( len(ydel) ):
                 if xf[i] < self.wn:
                     ydel[i] = 0.0
-            #ydel[0:self.wn] = 0.0
             self.lines[4].set_data(xf, abs(ydel))
             
             #update inverse fft
@@ -395,42 +497,33 @@ class Manager:
                   if xf[i] >= self.wn:
                       yff[i] = 0.0
                       yff[-i] = 0.0
-              #yff[self.wn:-self.wn] = 0.0
             else:
               yff[:] = 0.0
             yff = np.fft.ifft(yff)
-            self.lines[2].set_data(x, yff)
-            #self.axes[1].set_xlim(min(xf), max(xf) )
+            if self.fft:
+                self.lines[2].set_data(x, yff)
+            else:
+                self.lines[2].set_data([],[])
         else:
             pass
         
-        def draw_all_needed():
-            #self.fig.canvas.restore_region(self.background1)
-            self.axes[0].draw_artist(self.axes[0].xaxis )
-            for i in range(3):
-                self.axes[0].draw_artist(self.lines[i])
-            
-            for i in range(3,5):
-                self.axes[1].draw_artist(self.lines[i])
-                
-            self.fig.canvas.blit(self.axes[0].bbox)
-            self.fig.canvas.blit(self.axes[1].bbox)
-            self.fig.canvas.flush_events()
-        
-        #draw_all_needed()
-        #self.fig.canvas.draw()
         self.fig.canvas.restore_region(self.background1)
+        #draw data graph
         self.axes[0].draw_artist(self.lines[0] )
         self.axes[0].draw_artist(self.lines[1] )
         self.axes[0].draw_artist(self.lines[2] )
         self.axes[0].draw_artist(self.axes[0].xaxis )
-        self.fig.canvas.blit(self.axes[0].clipbox)
         
-        return [self.lines[3], self.lines[4]]
+        #draw fft graph
+        self.axes[1].draw_artist(self.lines[3] )
+        self.axes[1].draw_artist(self.lines[4] )
+        self.axes[1].draw_artist(self.axes[1].xaxis )
+        self.fig.canvas.blit(self.axes[1].get_figure().bbox )
+        
+        return self.lines
 
     def animate(self):
-        ani = animation.FuncAnimation(self.fig, self.update_graph, blit= True, interval=200)
-        #ani = animation.ArtistAnimation(self.fig, self.lines+[self.axes[0].xaxis], blit=True, interval=500)
+        ani = animation.FuncAnimation(self.fig, self.update_graph, blit= True, interval=100)
             
 if __name__ == '__main__':
     manager = Manager()
